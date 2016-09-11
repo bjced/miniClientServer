@@ -10,13 +10,18 @@ using System.Threading.Tasks;
 
 class Program
 {
-    const int TcpPortNo = 1234;
-    const int MultiCastPortNo = 2233;
-    //const string SERVER_IP = "127.0.0.1";
-       
-    static string ServerIp = "192.168.0.100"; //use localhost or the ip of your server
 
-    const string multiCastIp = "239.0.0.222";
+
+    //Using the SSDP multicast address and port  here
+    //(I know, this will break stuff, bit it is for a good cause :-)
+    //Using it since it means that messages will probably be forwarded even with IGMP snooping active
+    const string multiCastIp = "239.255.255.250";
+    const int MultiCastPortNo = 1900;
+
+    const int TcpPortNo = 1234;
+    static string TcpServerIp = "localhost"; 
+
+    
 
     public static string GetLocalIp()
     {
@@ -68,7 +73,7 @@ class Program
         IPAddress multicastaddress = IPAddress.Parse(multiCastIp);
         udpclient.JoinMulticastGroup(multicastaddress);
         IPEndPoint remoteep = new IPEndPoint(multicastaddress, MultiCastPortNo);
-        Byte[] buffer = Encoding.ASCII.GetBytes(ServerIp);
+        Byte[] buffer = Encoding.ASCII.GetBytes(TcpServerIp);
         while(true)
         {
             udpclient.SendAsync(buffer, buffer.Length, remoteep);
@@ -98,7 +103,7 @@ class Program
             if (strData.StartsWith("192"))
             {
                 Console.WriteLine("Found server at " + strData);
-                ServerIp = strData;
+                TcpServerIp = strData;
                 return;
             }
             Console.WriteLine(strData);
@@ -111,8 +116,8 @@ class Program
         {
             MultiCastServer();
         });
-        ServerIp = GetLocalIp();
-        TcpListener listener = new TcpListener(IPAddress.Parse(ServerIp), TcpPortNo);
+        TcpServerIp = GetLocalIp();
+        TcpListener listener = new TcpListener(IPAddress.Parse(TcpServerIp), TcpPortNo);
         Console.WriteLine("Local server started on address " + listener.LocalEndpoint.ToString());
 
         listener.Start();
@@ -180,7 +185,7 @@ class Program
 
         int port = TcpPortNo;
         TcpClient client = new TcpClient();
-        Task tsk = client.ConnectAsync(ServerIp, port);
+        Task tsk = client.ConnectAsync(TcpServerIp, port);
         tsk.Wait();
         NetworkStream stream = client.GetStream();
         StreamReader reader = new StreamReader(stream);
