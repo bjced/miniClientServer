@@ -109,6 +109,20 @@ class Program
             Console.WriteLine(strData);
         }
     }
+    class RemoteClient
+    {
+        public readonly StreamWriter Writer;
+        public readonly string Name;
+
+        public RemoteClient(string name, StreamWriter writer)
+        {
+            Name = name;
+            Writer = writer;
+        }
+    }
+
+    static List<RemoteClient> clientList = new List<RemoteClient>();
+
 
     static void StartServer()
     {
@@ -138,14 +152,14 @@ class Program
 
                 writer.WriteLine("Welcome! Please enter your name:");
                 string clientName = reader.ReadLine();
-                writerList.Add(new ClientWriter(clientName, writer));
+                clientList.Add(new RemoteClient(clientName, writer));
                 writer.WriteLine("Hello " + clientName);
-                writer.WriteLine("There are " + (writerList.Count - 1) + " other clients connected");
-                foreach (var item in writerList.Where(x => x.Name != clientName))
+                writer.WriteLine("There are " + (clientList.Count - 1) + " other clients connected");
+                foreach (var item in clientList.Where(x => x.Name != clientName))
                 {
                     writer.WriteLine(item.Name);
                 }
-                writerList.Where(x => x.Name != clientName).ToList().ForEach(x => x.Writer.WriteLine(clientName + " connected"));
+                clientList.Where(x => x.Name != clientName).ToList().ForEach(x => x.Writer.WriteLine(clientName + " connected"));
                 while (true)
                 {
                     string inputLine = "";
@@ -155,7 +169,7 @@ class Program
                         string msg = clientName + " : " + inputLine;
 
                         //TODO: make threadsafe
-                        writerList.Where(x => x.Name != clientName).ToList().ForEach(x => x.Writer.WriteLine(msg));
+                        clientList.Where(x => x.Name != clientName).ToList().ForEach(x => x.Writer.WriteLine(msg));
                         Console.WriteLine(msg);
                     }
                     Console.WriteLine("Server saw disconnect from " + clientName);
@@ -164,19 +178,7 @@ class Program
         }
     }
 
-    class ClientWriter
-    {
-        public readonly StreamWriter Writer;
-        public readonly string Name;
 
-        public ClientWriter(string name, StreamWriter writer)
-        {
-            Name = name;
-            Writer = writer;
-        }
-    }
-
-    static List<ClientWriter> writerList = new List<ClientWriter>();
 
     static void StartClient()
     {
