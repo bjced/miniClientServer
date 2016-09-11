@@ -112,11 +112,12 @@ class Program
 
     static void StartServer()
     {
+        TcpServerIp = GetLocalIp();
         Task readTask = Task.Run(() =>
         {
             MultiCastServer();
         });
-        TcpServerIp = GetLocalIp();
+        
         TcpListener listener = new TcpListener(IPAddress.Parse(TcpServerIp), TcpPortNo);
         Console.WriteLine("Local server started on address " + listener.LocalEndpoint.ToString());
 
@@ -139,12 +140,12 @@ class Program
                 string clientName = reader.ReadLine();
                 writerList.Add(new ClientWriter(clientName, writer));
                 writer.WriteLine("Hello " + clientName);
-                writer.WriteLine("There are " + writerList.Count + " clients connected");
+                writer.WriteLine("There are " + (writerList.Count - 1) + " other clients connected");
                 foreach (var item in writerList.Where(x => x.Name != clientName))
                 {
                     writer.WriteLine(item.Name);
                 }
-
+                writerList.Where(x => x.Name != clientName).ToList().ForEach(x => x.Writer.WriteLine(clientName + " connected"));
                 while (true)
                 {
                     string inputLine = "";
