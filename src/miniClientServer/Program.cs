@@ -10,14 +10,25 @@ using System.Threading.Tasks;
 
 class Program
 {
-    const int PortNo = 1234;
+    const int TcpPortNo = 1234;
+    const int MultiCastPortNo = 2233;
     //const string SERVER_IP = "127.0.0.1";
        
-    const string ServerIp = "192.168.0.100"; //use localhost or the ip of your server
+    static string ServerIp = "192.168.0.100"; //use localhost or the ip of your server
+
+    const string multiCastIp = "239.0.0.222";
+
+    public static string GetLocalIp()
+    {
+        var addr = Dns.GetHostAddressesAsync(Dns.GetHostName());
+        addr.Wait();
+        return (addr.Result.First(a => a.AddressFamily == AddressFamily.InterNetwork).ToString());
+    }
 
     public static void Main()
     {
         Console.WriteLine("Please pick either \"server\" (s) or \"client\" (c)");
+        
         string arg = "";
         while (arg != "q")
         {
@@ -29,6 +40,7 @@ class Program
                 try
                 {
                     StartServer();
+                    //MultiCastServer();
                 }
                 catch (Exception)
                 {
@@ -40,6 +52,7 @@ class Program
             {
                 Console.WriteLine("Starting client...");
                 StartClient();
+                MultiCastClient();
             }
             else
             {
@@ -48,10 +61,60 @@ class Program
         }
     }
 
+    static void MultiCastServer()
+    {
+        UdpClient udpclient = new UdpClient();
+
+        IPAddress multicastaddress = IPAddress.Parse(multiCastIp);
+        udpclient.JoinMulticastGroup(multicastaddress);
+        IPEndPoint remoteep = new IPEndPoint(multicastaddress, MultiCastPortNo);
+        Byte[] buffer = Encoding.ASCII.GetBytes(ServerIp);
+        while(true)
+        {
+            udpclient.SendAsync(buffer, buffer.Length, remoteep);
+            //Console.WriteLine("Sent " + ServerIp);
+            Thread.Sleep(1000);
+        }
+    }
+
+    static void MultiCastClient()
+    {
+        UdpClient client = new UdpClient();
+
+        client.ExclusiveAddressUse = false;
+        IPEndPoint localEp = new IPEndPoint(IPAddress.Any, MultiCastPortNo);
+
+        client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        client.ExclusiveAddressUse = false;
+        client.Client.Bind(localEp);
+
+        IPAddress multicastaddress = IPAddress.Parse(multiCastIp);
+        client.JoinMulticastGroup(multicastaddress);
+
+        while (true)
+        {
+            var data = client.ReceiveAsync();
+            string strData = Encoding.ASCII.GetString(data.Result.Buffer);
+            if (strData.StartsWith("192"))
+            {
+                Console.WriteLine("Found server at " + strData);
+                ServerIp = strData;
+                return;
+            }
+            Console.WriteLine(strData);
+        }
+    }
+
     static void StartServer()
     {
-        TcpListener listener = new TcpListener(IPAddress.Parse(ServerIp), PortNo);
+        Task readTask = Task.Run(() =>
+        {
+            MultiCastServer();
+        });
+        ServerIp = GetLocalIp();
+        TcpListener listener = new TcpListener(IPAddress.Parse(ServerIp), TcpPortNo);
         Console.WriteLine("Local server started on address " + listener.LocalEndpoint.ToString());
+
         listener.Start();
 
         while (true)
@@ -59,10 +122,42 @@ class Program
             Task<TcpClient> client;
             client = listener.AcceptTcpClientAsync();
             client.Wait();
-            ThreadPool.QueueUserWorkItem(ClientHandlerThread, client);
+            Task connectionTask = Task.Run(() =>
+            {
+                NetworkStream stream = client.Result.GetStream();
+                StreamWriter writer = new StreamWriter(stream, Encoding.ASCII) { AutoFlush = true };
+
+                StreamReader reader = new StreamReader(stream, Encoding.ASCII);
+                Console.WriteLine("New connection from " + ((IPEndPoint)client.Result.Client.RemoteEndPoint).Address.ToString());
+
+                writer.WriteLine("Welcome! Please enter your name:");
+                string clientName = reader.ReadLine();
+                writerList.Add(new ClientWriter(clientName, writer));
+                writer.WriteLine("Hello " + clientName);
+                writer.WriteLine("There are " + writerList.Count + " clients connected");
+                foreach (var item in writerList.Where(x => x.Name != clientName))
+                {
+                    writer.WriteLine(item.Name);
+                }
+
+                while (true)
+                {
+                    string inputLine = "";
+                    while (inputLine != null)
+                    {
+                        inputLine = reader.ReadLine();
+                        string msg = clientName + " : " + inputLine;
+
+                        //TODO: make threadsafe
+                        writerList.Where(x => x.Name != clientName).ToList().ForEach(x => x.Writer.WriteLine(msg));
+                        Console.WriteLine(msg);
+                    }
+                    Console.WriteLine("Server saw disconnect from " + clientName);
+                }
+            });
         }
     }
-    
+
     class ClientWriter
     {
         public readonly StreamWriter Writer;
@@ -77,47 +172,13 @@ class Program
 
     static List<ClientWriter> writerList = new List<ClientWriter>();
 
-    static void ClientHandlerThread(object obj)
-    {
-        var client = (Task<TcpClient>)obj;
-        NetworkStream stream = client.Result.GetStream();
-        StreamWriter writer = new StreamWriter(stream, Encoding.ASCII) { AutoFlush = true };
-        
-        StreamReader reader = new StreamReader(stream, Encoding.ASCII);
-        Console.WriteLine("New connection from " + ((IPEndPoint)client.Result.Client.RemoteEndPoint).Address.ToString());
-
-        writer.WriteLine("Welcome! Please enter your name:");
-        string clientName = reader.ReadLine();
-        writerList.Add(new ClientWriter(clientName, writer));
-        writer.WriteLine("Hello " + clientName);
-        writer.WriteLine("There are "+ writerList.Count + " clients connected");
-        foreach (var item in writerList)
-        {
-            writer.WriteLine(item.Name);
-        }
-
-        while (true)
-        {
-            string inputLine = "";
-            while (inputLine != null)
-            {
-                inputLine = reader.ReadLine();
-                string msg = clientName + " : " + inputLine;
-
-                //TODO: make threadsafe
-                writerList.Where(x=>x.Name != clientName).ToList().ForEach(x => x.Writer.WriteLine(msg));
-                Console.WriteLine(msg);
-            }
-            Console.WriteLine("Server saw disconnect from " + clientName);
-        }
-    }
-
     static void StartClient()
     {
 
-        Console.WriteLine("Starting client...");
+        Console.WriteLine("Starting client and waiting for server...");
+        MultiCastClient();
 
-        int port = PortNo;
+        int port = TcpPortNo;
         TcpClient client = new TcpClient();
         Task tsk = client.ConnectAsync(ServerIp, port);
         tsk.Wait();
